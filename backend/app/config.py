@@ -6,11 +6,12 @@ class Settings(BaseSettings):
     supabase_url: str = ""
     supabase_service_role_key: str = ""
     ai_api_key: str = ""
-    ai_base_url: str = "https://api.openai.com/v1"
-    ai_model: str = "gpt-4o-mini"
-    ai_vision_model: str = "gpt-4o-mini"
-    ai_embedding_model: str = "text-embedding-3-small"
-    ai_embedding_dimensions: int = 1536
+    ai_provider: str = "ollama"
+    ai_base_url: str = "http://127.0.0.1:11434"
+    ai_model: str = "llama3.2"
+    ai_vision_model: str = "llama3.2-vision"
+    ai_embedding_model: str = "nomic-embed-text"
+    ai_embedding_dimensions: int = 768
     cors_origins: str = "http://localhost:3000"
     max_file_size_mb: int = 10
     max_message_length: int = 12000

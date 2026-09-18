@@ -64,21 +64,29 @@ async def create_conversation(payload: ConversationCreate, decan_session: str | 
 async def chat(payload: ChatRequest, decan_session: str | None = Cookie(default=None)) -> APIResponse:
     session_id = await session_id_from_cookie(decan_session)
     conversation_id = payload.conversation_id
-    if conversation_id is None:
-        created = await db.request("POST", "conversations", headers={"Prefer": "return=representation"}, json={"session_id": str(session_id), "title": payload.message[:80]})
-        conversation_id = UUID(created[0]["id"])
-    history = await db.request("GET", "messages", params={"conversation_id": f"eq.{conversation_id}", "select": "role,content", "order": "created_at.asc", "limit": "20"})
-    query_embedding = await ai.embed(payload.message)
-    context_rows = await db.request("POST", "rpc/match_knowledge_chunks", json={"query_embedding": query_embedding, "match_threshold": 0.35, "match_count": 5, "p_session_id": str(session_id)})
+    if db.configured:
+        if conversation_id is None:
+            created = await db.request("POST", "conversations", headers={"Prefer": "return=representation"}, json={"session_id": str(session_id), "title": payload.message[:80]})
+            conversation_id = UUID(created[0]["id"])
+        history = await db.request("GET", "messages", params={"conversation_id": f"eq.{conversation_id}", "select": "role,content", "order": "created_at.asc", "limit": "20"})
+        query_embedding = await ai.embed(payload.message)
+        context_rows = await db.request("POST", "rpc/match_knowledge_chunks", json={"query_embedding": query_embedding, "match_threshold": 0.35, "match_count": 5, "p_session_id": str(session_id)})
+    else:
+        conversation_id = conversation_id or uuid4()
+        history = []
+        context_rows = []
     prompt = f"Use the following retrieved knowledge only as reference. If it does not answer the request, say so; do not invent details.\n{context_rows}\n\nUser request: {payload.message}"
     messages = [{"role": "system", "content": SYSTEM_PROMPT}, *history, {"role": "user", "content": prompt}]
     answer = await ai.generate_text(messages)
-    await db.request("POST", "messages", json=[{"conversation_id": str(conversation_id), "role": "user", "content": payload.message}, {"conversation_id": str(conversation_id), "role": "assistant", "content": answer, "model": settings.ai_model}])
+    if db.configured:
+        await db.request("POST", "messages", json=[{"conversation_id": str(conversation_id), "role": "user", "content": payload.message}, {"conversation_id": str(conversation_id), "role": "assistant", "content": answer, "model": settings.ai_model}])
     return APIResponse(data={"conversation_id": str(conversation_id), "content": answer})
 
 @app.post("/api/knowledge", response_model=APIResponse)
 async def add_knowledge(payload: KnowledgeCreate, decan_session: str | None = Cookie(default=None)) -> APIResponse:
     session_id = await session_id_from_cookie(decan_session)
+    if not db.configured:
+        raise HTTPException(503, "Knowledge storage requires Supabase configuration")
     embedding = await ai.embed(payload.content)
     rows = await db.request("POST", "training_entries", headers={"Prefer": "return=representation"}, json={"session_id": str(session_id), "title": payload.title, "content": payload.content, "source": payload.source, "category": payload.category})
     entry_id = rows[0]["id"]

@@ -9,11 +9,19 @@ class AIService:
         self.settings = get_settings()
 
     def _headers(self) -> dict[str, str]:
+        if self.settings.ai_provider == "ollama":
+            return {"Content-Type": "application/json"}
         if not self.settings.ai_api_key:
             raise RuntimeError("AI provider is not configured")
         return {"Authorization": f"Bearer {self.settings.ai_api_key}", "Content-Type": "application/json"}
 
     async def generate_text(self, messages: list[dict[str, str]], *, vision: bool = False) -> str:
+        if self.settings.ai_provider == "ollama":
+            payload = {"model": self.settings.ai_vision_model if vision else self.settings.ai_model, "messages": messages, "stream": False, "options": {"temperature": 0.2}}
+            async with httpx.AsyncClient(timeout=90) as client:
+                response = await client.post(f"{self.settings.ai_base_url.rstrip('/')}/api/chat", headers=self._headers(), json=payload)
+                response.raise_for_status()
+                return response.json()["message"]["content"]
         payload = {"model": self.settings.ai_vision_model if vision else self.settings.ai_model, "messages": messages, "temperature": 0.2}
         async with httpx.AsyncClient(timeout=90) as client:
             response = await client.post(f"{self.settings.ai_base_url.rstrip('/')}/chat/completions", headers=self._headers(), json=payload)
@@ -21,6 +29,11 @@ class AIService:
             return response.json()["choices"][0]["message"]["content"]
 
     async def embed(self, text: str) -> list[float]:
+        if self.settings.ai_provider == "ollama":
+            async with httpx.AsyncClient(timeout=60) as client:
+                response = await client.post(f"{self.settings.ai_base_url.rstrip('/')}/api/embed", headers=self._headers(), json={"model": self.settings.ai_embedding_model, "input": text})
+                response.raise_for_status()
+                return response.json()["embeddings"][0]
         async with httpx.AsyncClient(timeout=60) as client:
             response = await client.post(f"{self.settings.ai_base_url.rstrip('/')}/embeddings", headers=self._headers(), json={"model": self.settings.ai_embedding_model, "input": text})
             response.raise_for_status()
